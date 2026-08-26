@@ -140,8 +140,18 @@ def main() -> int:
         ok, msg = check_database(token)
         print(f"{'[OK]  ' if ok else '[XATO]'} Bazaga kirish - {msg}")
         if not ok:
-            print("\n.env o'zgartirilmadi.\n")
-            return 1
+            # Token haqiqiy, faqat sahifa ulanmagan. Tokenni saqlab
+            # qo'yamiz - foydalanuvchi uni qayta yozmasin. Ulangandan
+            # keyin hech narsa qilmasdan ishlab ketadi.
+            write_env(token)
+            print(f"\n[OK]   Token .env ga saqlandi: {ENV_PATH}")
+            print(
+                "\n>>> QOLGAN BITTA QADAM: integratsiyani bazaga ulang.\n"
+                "    Notion'da bazani oching -> o'ng yuqorida '...' ->\n"
+                "    Connections -> integratsiyangizni qo'shing.\n"
+                "    So'ng shunchaki:  python check.py\n"
+            )
+            return 2
 
         ok_c, msg_c = check_comments(token)
         print(f"{'[OK]  ' if ok_c else '[?]   '} Komentariya - {msg_c}")

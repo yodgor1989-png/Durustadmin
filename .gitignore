@@ -4,3 +4,4 @@ __pycache__/
 bot_state.db
 .venv/
 _old_calculator/
+bot.log

@@ -7,9 +7,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# Majburiy sozlamalar import paytida emas, validate() chaqirilganda
-# tekshiriladi - shunda testlar .env'siz ham ishlaydi.
+# Sozlamalar import paytida emas, validate() chaqirilganda tekshiriladi -
+# shunda testlar .env'siz ham ishlaydi.
+#
+# BOT_TOKEN'siz bot umuman ishga tusha olmaydi.
+# NOTION_TOKEN va OPENAI_API_KEY esa ixtiyoriy: ularsiz bot baribir
+# ishga tushadi, faqat tegishli imkoniyatlar o'chiq bo'ladi va foydalanuvchiga
+# nima yetishmayotgani aytiladi. Ishlamay turgandan ko'ra shunisi yaxshi.
 _REQUIRED: list[str] = []
+_OPTIONAL: list[str] = []
 
 
 def _req(name: str) -> str:
@@ -17,8 +23,13 @@ def _req(name: str) -> str:
     return os.getenv(name, "").strip()
 
 
+def _opt(name: str) -> str:
+    _OPTIONAL.append(name)
+    return os.getenv(name, "").strip()
+
+
 def validate() -> None:
-    """Majburiy sozlamalar to'ldirilganini tekshiradi."""
+    """Botni ishga tushirish uchun zarur sozlamalarni tekshiradi."""
     missing = [name for name in _REQUIRED if not os.getenv(name, "").strip()]
     if missing:
         raise RuntimeError(
@@ -26,6 +37,19 @@ def validate() -> None:
             + ", ".join(missing)
             + ". .env.example ga qarang."
         )
+
+
+def missing_optional() -> list[str]:
+    """To'ldirilmagan ixtiyoriy sozlamalar ro'yxati."""
+    return [name for name in _OPTIONAL if not os.getenv(name, "").strip()]
+
+
+def notion_ready() -> bool:
+    return bool(NOTION_TOKEN)
+
+
+def ai_ready() -> bool:
+    return bool(OPENAI_API_KEY)
 
 
 # --- Telegram ---------------------------------------------------------------
@@ -38,14 +62,17 @@ ADMIN_IDS = {
 }
 
 # --- Notion -----------------------------------------------------------------
-NOTION_TOKEN = _req("NOTION_TOKEN")
+NOTION_TOKEN = _opt("NOTION_TOKEN")
 # Baza ID'si .env dan olinadi - kod ochiq repozitoriyada yotgani uchun
-# ish ma'lumotlari sozlamalarda qolsin.
-NOTION_DATABASE_ID = _req("NOTION_DATABASE_ID").replace("-", "")
+# ish ma'lumotlari sozlamalarda qolsin. Majburiy emas: bo'sh bo'lsa yoki
+# noto'g'ri bo'lsa, bot bazani nomi bo'yicha o'zi topadi.
+NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID", "").strip().replace("-", "")
+# Baza qidiruvda shu nom bo'yicha topiladi
+DATABASE_TITLE_HINT = os.getenv("DATABASE_TITLE_HINT", "задача дашборд")
 NOTION_VERSION = "2022-06-28"
 
 # --- OpenAI -----------------------------------------------------------------
-OPENAI_API_KEY = _req("OPENAI_API_KEY")
+OPENAI_API_KEY = _opt("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.5")
 
 # --- Notion ustunlari (bazadagi aniq nomlar) --------------------------------

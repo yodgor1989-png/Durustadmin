@@ -81,9 +81,94 @@ class NotionClient:
             },
         )
         self._user_names: dict[str, str] = {}
+        self._database_id: str = ""
 
     async def close(self) -> None:
         await self._http.aclose()
+
+    # --- bazani topish ------------------------------------------------------
+    async def resolve_database_id(self) -> str:
+        """Ishlaydigan baza ID'sini topadi.
+
+        .env dagi ID Notion'dagi "linked view" bo'lishi mumkin - unaqasini
+        API o'qiy olmaydi (404). Shuning uchun avval sozlamadagi ID sinaladi,
+        ishlamasa baza nomi bo'yicha qidiriladi.
+        """
+        if self._database_id:
+            return self._database_id
+
+        configured = config.NOTION_DATABASE_ID
+        if configured and await self._database_works(configured):
+            self._database_id = configured
+            logger.info("Baza ID sozlamadan olindi: %s", configured)
+            return configured
+
+        if configured:
+            logger.warning(
+                "Sozlamadagi ID (%s) ishlamadi - bu 'linked view' bo'lishi "
+                "mumkin. Baza nomi bo'yicha qidirilyapti...",
+                configured,
+            )
+
+        found = await self._search_database(config.DATABASE_TITLE_HINT)
+        if not found:
+            raise RuntimeError(
+                "Baza topilmadi. Notion'da integratsiya bazaga ulanganini "
+                "tekshiring (baza sahifasi -> ... -> Connections). "
+                "Yoki .env dagi NOTION_DATABASE_ID ni to'g'rilang."
+            )
+        self._database_id = found
+        logger.info("Baza qidiruv orqali topildi: %s", found)
+        return found
+
+    async def _database_works(self, database_id: str) -> bool:
+        """Shu ID bo'yicha baza o'qilyaptimi."""
+        try:
+            resp = await self._http.post(
+                f"/databases/{database_id}/query", json={"page_size": 1}
+            )
+        except Exception as exc:
+            logger.error("Bazani tekshirishda xato: %s", exc)
+            return False
+        if resp.status_code < 400:
+            return True
+        logger.info(
+            "Baza %s o'qilmadi (%s): %s",
+            database_id,
+            resp.status_code,
+            resp.text[:150],
+        )
+        return False
+
+    async def _search_database(self, title_hint: str) -> str:
+        """Nomi bo'yicha bazani qidiradi."""
+        resp = await self._http.post(
+            "/search",
+            json={
+                "query": title_hint,
+                "filter": {"value": "database", "property": "object"},
+                "page_size": 25,
+            },
+        )
+        if resp.status_code >= 400:
+            logger.error("Qidiruv xato %s: %s", resp.status_code, resp.text[:200])
+            return ""
+
+        candidates = []
+        for item in resp.json().get("results", []):
+            title = _plain(item.get("title"))
+            candidates.append((item.get("id", ""), title))
+
+        logger.info("Qidiruv topdi: %s", [t for _, t in candidates] or "hech narsa")
+
+        # Nomida ishora bo'lgani ustunroq; bo'lmasa birinchi o'qiladigani.
+        hint = title_hint.lower()
+        ranked = sorted(candidates, key=lambda pair: hint not in pair[1].lower())
+        for database_id, title in ranked:
+            if database_id and await self._database_works(database_id):
+                logger.info("Mos baza: %s (%s)", title, database_id)
+                return database_id
+        return ""
 
     # --- foydalanuvchilar ---------------------------------------------------
     async def load_users(self) -> dict[str, str]:
@@ -111,6 +196,7 @@ class NotionClient:
     async def fetch_active_tasks(self) -> list[Task]:
         """Statusi План / Стрт / Аудт bo'lgan barcha zadachalar."""
         names = await self.load_users()
+        database_id = await self.resolve_database_id()
         payload: dict[str, Any] = {
             "filter": {
                 "or": [
@@ -127,7 +213,7 @@ class NotionClient:
             if cursor:
                 body["start_cursor"] = cursor
             resp = await self._http.post(
-                f"/databases/{config.NOTION_DATABASE_ID}/query", json=body
+                f"/databases/{database_id}/query", json=body
             )
             if resp.status_code >= 400:
                 logger.error("Notion query xato %s: %s", resp.status_code, resp.text)
@@ -219,6 +305,7 @@ class NotionClient:
         note: str = "",
     ) -> str | None:
         """Yangi zadacha yaratadi, sahifa URL'ini qaytaradi."""
+        database_id = await self.resolve_database_id()
         props: dict[str, Any] = {
             config.P_TITLE: {"title": [{"text": {"content": title[:1900]}}]},
             config.P_STATUS: {"status": {"name": config.STATUS_TODO}},
@@ -232,7 +319,7 @@ class NotionClient:
         resp = await self._http.post(
             "/pages",
             json={
-                "parent": {"database_id": config.NOTION_DATABASE_ID},
+                "parent": {"database_id": database_id},
                 "properties": props,
             },
         )

@@ -55,6 +55,19 @@ async def check_notion() -> bool:
     try:
         users = await client.load_users()
         line(True, "Notion auth", f"{len(users)} ta foydalanuvchi ko'rinyapti")
+
+        database_id = await client.resolve_database_id()
+        if database_id != config.NOTION_DATABASE_ID:
+            line(
+                None,
+                "Notion baza ID",
+                f"sozlamadagi ID ishlamadi, topilgani: {database_id}\n"
+                f"      .env da NOTION_DATABASE_ID={database_id} qilib "
+                f"qo'ysangiz tezroq ishga tushadi",
+            )
+        else:
+            line(True, "Notion baza ID", database_id)
+
         tasks = await client.fetch_active_tasks()
         line(True, "Notion baza", f"{len(tasks)} ta aktiv zadacha o'qildi")
 

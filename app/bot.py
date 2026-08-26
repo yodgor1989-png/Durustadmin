@@ -66,6 +66,48 @@ def short_id(page_id: str) -> str:
     return page_id.replace("-", "")
 
 
+NOTION_MISSING = (
+    "⚙️ <b>Notion hali ulanmagan.</b>\n\n"
+    "Bu buyruq Notion bazasini o'qiydi, shuning uchun ishlamaydi.\n\n"
+    "Ulash uchun:\n"
+    "1. notion.so/my-integrations → New integration\n"
+    "2. Secret'ni nusxalang\n"
+    "3. Notion'da baza sahifasi → <code>...</code> → Connections → "
+    "integratsiyani qo'shing\n"
+    "4. Kompyuterda: <code>python notion_token.py</code>\n\n"
+    "Shundan keyin botni qayta ishga tushiring."
+)
+
+
+AI_MISSING = "\n".join(
+    [
+        "⚙️ <b>AI hali ulanmagan.</b>",
+        "",
+        "Zadacha yasash uchun OpenAI kaliti kerak.",
+        ".env da <code>OPENAI_API_KEY</code> ni to'ldiring va hisobda kredit",
+        "borligiga ishonch hosil qiling, so'ng botni qayta ishga tushiring.",
+        "",
+        "<i>Qoidalar tekshiruvi (/tekshir, /eskirgan) AI'siz ham ishlaydi.</i>",
+    ]
+)
+
+
+async def ai_guard(message: Message) -> bool:
+    """AI ulanmagan bo'lsa tushuntirib, False qaytaradi."""
+    if config.ai_ready():
+        return True
+    await message.answer(AI_MISSING)
+    return False
+
+
+async def notion_guard(message: Message) -> bool:
+    """Notion ulanmagan bo'lsa tushuntirib, False qaytaradi."""
+    if config.notion_ready():
+        return True
+    await message.answer(NOTION_MISSING)
+    return False
+
+
 # --- Klaviaturalar ----------------------------------------------------------
 def task_keyboard(task: Task, overdue: bool = False) -> InlineKeyboardMarkup:
     sid = short_id(task.page_id)
@@ -176,6 +218,8 @@ async def cmd_rules(message: Message) -> None:
 
 @dp.message(Command("tekshir"))
 async def cmd_check(message: Message) -> None:
+    if not await notion_guard(message):
+        return
     status = await message.answer("⏳ Notion tekshirilyapti...")
     try:
         tasks = await notion.fetch_active_tasks()
@@ -235,6 +279,8 @@ async def cmd_check(message: Message) -> None:
 
 @dp.message(Command("eskirgan"))
 async def cmd_overdue(message: Message) -> None:
+    if not await notion_guard(message):
+        return
     status = await message.answer("⏳ Eskirgan zadachalar qidirilyapti...")
     try:
         tasks = await notion.fetch_active_tasks()
@@ -269,6 +315,8 @@ async def cmd_overdue(message: Message) -> None:
 
 @dp.message(Command("holat"))
 async def cmd_stats(message: Message) -> None:
+    if not await notion_guard(message):
+        return
     try:
         tasks = await notion.fetch_active_tasks()
     except Exception as exc:
@@ -299,6 +347,8 @@ async def cmd_new(message: Message) -> None:
 
 
 async def _clarify_and_offer(message: Message, raw: str) -> None:
+    if not await ai_guard(message):
+        return
     status = await message.answer("🤔 Zadacha aniqlashtirilyapti...")
     result = await ai.clarify(raw, today())
 
@@ -367,6 +417,9 @@ async def on_text(message: Message) -> None:
 # --- Tugmalar ---------------------------------------------------------------
 @dp.callback_query(F.data.startswith("rev:"))
 async def cb_review(call: CallbackQuery) -> None:
+    if not config.notion_ready():
+        await call.answer("Notion ulanmagan.", show_alert=True)
+        return
     await call.answer("Tahlil qilinyapti...")
     page_id = call.data[4:]
     try:
@@ -386,6 +439,9 @@ async def cb_review(call: CallbackQuery) -> None:
 async def cb_improve(call: CallbackQuery) -> None:
     if not is_admin(call.from_user.id):
         await call.answer("Sizda Notion'ni o'zgartirish huquqi yo'q.", show_alert=True)
+        return
+    if not config.notion_ready():
+        await call.answer("Notion ulanmagan.", show_alert=True)
         return
     await call.answer("Aniqlashtirilyapti...")
     page_id = call.data[4:]
@@ -422,6 +478,9 @@ async def cb_improve(call: CallbackQuery) -> None:
 
 @dp.callback_query(F.data.startswith("ask:"))
 async def cb_ask(call: CallbackQuery) -> None:
+    if not config.notion_ready():
+        await call.answer("Notion ulanmagan.", show_alert=True)
+        return
     await call.answer("Izoh so'ralyapti...")
     page_id = call.data[4:]
     try:
@@ -442,6 +501,9 @@ async def cb_ask(call: CallbackQuery) -> None:
 
 @dp.callback_query(F.data.startswith("com:"))
 async def cb_comment(call: CallbackQuery) -> None:
+    if not config.notion_ready():
+        await call.answer("Notion ulanmagan.", show_alert=True)
+        return
     page_id = call.data[4:]
     awaiting_comment[call.from_user.id] = page_id
     await call.answer()
@@ -509,6 +571,9 @@ async def daily_report() -> None:
     if not config.GROUP_CHAT_ID:
         logger.warning("GROUP_CHAT_ID yo'q, kunlik hisobot yuborilmadi")
         return
+    if not config.notion_ready():
+        logger.warning("NOTION_TOKEN yo'q, kunlik hisobot o'tkazib yuborildi")
+        return
     day = today()
     logger.info("Kunlik hisobot boshlandi: %s", day)
     try:
@@ -572,10 +637,27 @@ async def on_startup() -> None:
             BotCommand(command="holat", description="Statistika"),
         ]
     )
-    try:
-        await notion.load_users()
-    except Exception:
-        logger.exception("Notion foydalanuvchilari yuklanmadi")
+    missing = config.missing_optional()
+    if missing:
+        logger.warning(
+            "Ishlamaydigan imkoniyatlar bor - .env da yo'q: %s", ", ".join(missing)
+        )
+
+    if config.notion_ready():
+        try:
+            await notion.load_users()
+            database_id = await notion.resolve_database_id()
+            logger.info("Notion tayyor. Baza: %s", database_id)
+        except Exception as exc:
+            logger.error("Notion ulanmadi: %s", exc)
+    else:
+        logger.warning(
+            "NOTION_TOKEN yo'q: /tekshir, /eskirgan, /holat ishlamaydi. "
+            "Ulash uchun: python notion_token.py"
+        )
+
+    if not config.ai_ready():
+        logger.warning("OPENAI_API_KEY yo'q: /yangi va AI komentariyalar o'chiq")
 
 
 async def main() -> None:

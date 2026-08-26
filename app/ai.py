@@ -14,7 +14,8 @@ from app.rules import Issue
 
 logger = logging.getLogger("ai")
 
-client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+# Kalit bo'lmasa ham modul import bo'lishi kerak - bot AI'siz ishlayveradi.
+client = AsyncOpenAI(api_key=config.OPENAI_API_KEY) if config.ai_ready() else None
 
 SYSTEM = """Sen "Durust" kompaniyasining task-menejerisiz. Notion'dagi
 zadachalarni tekshirasan va rahbar tilida qisqa, konkret fikr bildirasan.
@@ -49,6 +50,8 @@ def _variants() -> list[dict]:
 
 
 async def _call(user: str, system: str, extra: dict, json_mode: bool) -> str:
+    if client is None:
+        raise RuntimeError("OPENAI_API_KEY kiritilmagan")
     kwargs = dict(extra)
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}

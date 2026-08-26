@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 bot_state.db
 .venv/
+_old_calculator/

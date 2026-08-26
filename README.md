@@ -140,6 +140,7 @@ qolinadi).
 ```
 main.py            ishga tushirish
 check.py           ulanishlarni tekshirish
+notion_token.py    Notion tokenini tekshirib .env ga yozish
 demo.py            Notion'siz namoyish (haqiqiy ma'lumot namunasi ustida)
 test_rules.py      qoidalar testi (24 ta tekshiruv)
 app/config.py      .env sozlamalari
@@ -148,7 +149,6 @@ app/rules.py       qoidalar dvigateli
 app/ai.py          OpenAI qatlami
 app/bot.py         Telegram handlerlar + kunlik hisobot
 app/storage.py     SQLite (takroriy xabarni oldini olish)
-_old_calculator/   eski kalkulyator bot (ishlatilmaydi)
 ```
 
 ## Eslatmalar
